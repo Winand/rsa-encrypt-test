@@ -1,22 +1,34 @@
 SRC_FILE="image.png"
 DST_FILE="image-dec.png"
 
-OUTPUT_DIR="./rsa-output"
-PASSWORD="$OUTPUT_DIR/password"
-PUB_KEY="./keys/client/ssh_key.pub"
-PRIV_KEY="./keys/client/ssh_key"
+OUT_DIR="./rsa-output"
+PASSWORD_FILE="$OUT_DIR/password"
+CLIENT_PUB_KEY="./keys/client/ssh_key.pub"
+CLIENT_PRIV_KEY="./keys/client/ssh_key"
+SERVER_PUB_KEY="./keys/server/ssh_key.pub"
+SERVER_PRIV_KEY="./keys/server/ssh_key"
 
-mkdir $OUTPUT_DIR
+mkdir -p $OUT_DIR
 
-# Encryption
-openssl rand -hex -out $PASSWORD 32
-openssl enc -p -aes-256-cbc -pbkdf2 -in $SRC_FILE -out $OUTPUT_DIR/$SRC_FILE.enc -pass file:$PASSWORD
-ssh-keygen -f $PUB_KEY -e -m PKCS8 > $OUTPUT_DIR/pem.pub  # note: same result for $PRIV_KEY input
-openssl rsautl -encrypt -inkey $OUTPUT_DIR/pem.pub -pubin -in $PASSWORD -out $PASSWORD.enc
+echo "---Encryption---"
+openssl rand -hex -out $PASSWORD_FILE 32
+openssl enc -p -aes-256-cbc -pbkdf2 -pass file:$PASSWORD_FILE -in $SRC_FILE -out $OUT_DIR/$SRC_FILE.enc
+ssh-keygen -f $CLIENT_PUB_KEY -e -m PKCS8 > $OUT_DIR/client_pem.pub  # note: same result for $CLIENT_PRIV_KEY input
+openssl rsautl -encrypt -inkey $OUT_DIR/client_pem.pub -pubin -in $PASSWORD_FILE -out $PASSWORD_FILE.enc
 
-# Decryption
+echo "---Signing---"
 # https://serverfault.com/a/1030084
-cp $PRIV_KEY $OUTPUT_DIR/pem
-ssh-keygen -p -N "" -m pem -f $OUTPUT_DIR/pem
-openssl rsautl -decrypt -inkey $OUTPUT_DIR/pem -in $PASSWORD.enc -out $PASSWORD.dec
-openssl enc -d -p -aes-256-cbc -pbkdf2 -salt -in $OUTPUT_DIR/$SRC_FILE.enc -out $DST_FILE -pass file:$PASSWORD.dec
+cp $SERVER_PRIV_KEY $OUT_DIR/server_pem
+ssh-keygen -p -N "" -m pem -f $OUT_DIR/server_pem
+openssl dgst -sign $OUT_DIR/server_pem -keyform PEM -sha256 -out $OUT_DIR/$SRC_FILE.sign -binary $OUT_DIR/$SRC_FILE.enc
+
+echo "---Verification---"
+ssh-keygen -f $SERVER_PUB_KEY -e -m PKCS8 > $OUT_DIR/server_pem.pub
+openssl dgst -verify $OUT_DIR/server_pem.pub -keyform PEM -sha256 -signature $OUT_DIR/$SRC_FILE.sign -binary $OUT_DIR/$SRC_FILE.enc
+if [ $? -ne 0 ]; then exit 1; fi
+
+echo "---Decryption---"
+cp $CLIENT_PRIV_KEY $OUT_DIR/client_pem
+ssh-keygen -p -N "" -m pem -f $OUT_DIR/client_pem
+openssl rsautl -decrypt -inkey $OUT_DIR/client_pem -in $PASSWORD_FILE.enc -out $PASSWORD_FILE.dec
+openssl enc -d -p -aes-256-cbc -pbkdf2 -salt -pass file:$PASSWORD_FILE.dec -in $OUT_DIR/$SRC_FILE.enc -out $DST_FILE
