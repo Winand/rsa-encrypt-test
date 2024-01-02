@@ -15,3 +15,4 @@ ssh-keygen -t rsa -q -N "" -f ./keys/server/ssh_key
 
 # Notes
 - EdDSA [Ed25519](https://ru.wikipedia.org/wiki/EdDSA#Ed25519) is used for signing, not encrypting
+- [AES CBC can be decrypted with a different IV](https://security.stackexchange.com/q/270396) because IV affects only first block
